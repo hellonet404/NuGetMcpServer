@@ -1,4 +1,3 @@
-﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using NuGetMcpServer.Services;
@@ -13,18 +12,6 @@ builder.Logging.AddConsole(options =>
     options.LogToStandardErrorThreshold = LogLevel.Trace;
 });
 
-
-builder.Services.AddHttpClient<NuGetCatalogClient>(client =>
-{
-    client.BaseAddress = new Uri("https://api.nuget.org/");
-    client.Timeout = TimeSpan.FromSeconds(10);
-});
-
-
-builder.Services
-    .AddMcpServer()
-    .WithStdioServerTransport()
-    .WithToolsFromAssembly(); //会扫描当前程序集中的 [McpServerToolType] 类
-
+builder.Services.AddServices(builder.Configuration);
 
 await builder.Build().RunAsync();
