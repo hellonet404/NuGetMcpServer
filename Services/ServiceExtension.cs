@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using NuGetMcpServer.Settings;
 
@@ -13,6 +13,9 @@ namespace NuGetMcpServer.Services
                 client.BaseAddress = new Uri("https://api.nuget.org/");
                 client.Timeout = TimeSpan.FromSeconds(10);
             });
+
+            // 通用 HttpClient 工厂，供 HttpTools 等工具使用
+            services.AddHttpClient();
 
             // 读取 appsettings.json 中的 NuGet 配置节，并绑定到 LocalSettingOptions 类
             var nugetSection = configuration.GetSection(LocalSettingOptions.SectionName);
