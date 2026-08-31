@@ -81,6 +81,52 @@ MCP 采用 **JSON-RPC over stdio** 的通信方式：服务器通过标准输入
 
 一个值得注意的实现细节：本项目在 `Program.cs` 中把**所有日志都重定向到标准错误流（stderr）**。这是因为 stdout 承担着 JSON-RPC 协议数据，任何多余输出都会破坏协议——Inspector 的调试界面也会把 stderr 输出显示出来，便于你查看服务器日志。
 
+## 📦 AOT 原生发布
+
+本项目已配置为支持 .NET AOT（Ahead-of-Time）原生发布：把程序连同依赖的 .NET 运行时一起编译为单一原生可执行文件。目标机器无需安装 .NET 运行时，启动更快、内存占用更低、反编译难度更高。
+
+> **AOT 前提**：发布机需安装 .NET 10 SDK，并具备对应平台的 C++ 原生编译工具链（Windows 上为 Visual Studio 的「使用 C++ 的桌面开发」工作负载）。
+
+### 项目中的 AOT 相关配置
+
+`NuGetMcpServer.csproj` 中已包含：
+
+- `<PublishAot>true</PublishAot>`：启用 AOT 发布。
+- `<DebugType>none</DebugType>` 与 `<DebugSymbols>false</DebugSymbols>`：发布时不生成 .pdb 调试符号，减小分发体积。
+- JSON 序列化使用 `JsonSerializerContext` source generator（见 `Services/NuGetCatalogClient.cs` 中的 `VersionIndexJsonContext`），避免反射式 System.Text.Json 在 AOT 下抛出 `NotSupportedException`。
+
+### 发布命令
+
+以 Windows x64 为例：
+
+```bash
+dotnet publish -c Release -r win-x64
+```
+
+产物位于 `bin/Release/net10.0/win-x64/publish/`，其中 `NuGetMcpServer.exe` 即最终原生可执行文件。
+
+> 其他平台将 `win-x64` 替换为 `linux-x64`、`osx-arm64` 等即可，目标平台需与运行环境一致。
+
+### 在 MCP 客户端中使用发布后的 exe
+
+发布完成后，可直接以原生 exe 作为 MCP 服务器启动命令：
+
+```json
+{
+  "mcpServers": {
+    "nuget": {
+      "command": "C:/path/to/publish/NuGetMcpServer.exe"
+    }
+  }
+}
+```
+
+### 常见问题
+
+- **发布报 MSB4216（任务宿主创建失败）**：这是 .NET SDK 10.0.302 在 Windows 上的已知问题，仅影响 Windows 且与代码无关。可升级 SDK 至 10.0.100+ 或降级至 9.0.306 解决（参见 [dotnet/msbuild#12751](https://github.com/dotnet/msbuild/issues/12751)）。
+- **AOT 下 JSON 序列化异常**：本项目已通过 `JsonSerializerContext` 预生成序列化代码，不会出现反射式序列化导致的 `NotSupportedException`。若后续新增需要 JSON 序列化的类型，请记得在 `VersionIndexJsonContext` 中通过 `[JsonSerializable]` 注册。
+- **发布后修改配置**：AOT 发布产物仍读取同目录下的 `appsettings.json`，请将配置文件一并复制到部署目录。
+
 ## 🔌 与 MCP 客户端集成
 
 本服务器采用 stdio 传输，启动命令为 `dotnet run`（可在 `NuGetMcpServer.csproj` 所在目录执行）。在任意支持 MCP 的客户端中，添加一个 `command` 类型的 MCP 服务器即可，例如：
