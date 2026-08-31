@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using NuGetMcpServer.Settings;
+using NuGetMcpServer.Tools;
 
 namespace NuGetMcpServer.Services
 {
@@ -32,7 +33,10 @@ namespace NuGetMcpServer.Services
             services
                 .AddMcpServer()
                 .WithStdioServerTransport()
-                .WithToolsFromAssembly(); //会扫描当前程序集中的 [McpServerToolType] 类
+                //.WithToolsFromAssembly(); //会扫描当前程序集中的 [McpServerToolType] 类
+                .WithTools<NuGetTools>()
+                .WithTools<LocalNuGetTools>()
+                .WithTools<HttpTools>();
 
             return services;
         }

@@ -1,9 +1,6 @@
-﻿using NuGet.Versioning;
-using System;
-using System.Collections.Generic;
+using NuGet.Versioning;
 using System.Net;
 using System.Net.Http.Json;
-using System.Text;
 using System.Text.Json.Serialization;
 
 namespace NuGetMcpServer.Services
@@ -24,7 +21,8 @@ namespace NuGetMcpServer.Services
 
             response.EnsureSuccessStatusCode();
 
-            var index = await response.Content.ReadFromJsonAsync<VersionIndex>(cancellationToken);
+            // AOT 安全：使用 source generator 生成的 JsonTypeInfo，避免反射式 System.Text.Json
+            var index = await response.Content.ReadFromJsonAsync(VersionIndexJsonContext.Default.VersionIndex, cancellationToken);
 
             if(index?.Versions is not { Count: > 0 } versions)
                 return [];
@@ -37,6 +35,20 @@ namespace NuGetMcpServer.Services
         }
 
 
-        private sealed record VersionIndex([property: JsonPropertyName("versions")] IReadOnlyList<string> Versions);
+    }
+
+    /// <summary>
+    /// v3-flatcontainer/{id}/index.json 响应模型。
+    /// [property: JsonPropertyName("versions")] 明确告诉编译器"这个特性要贴到属性上，而不是别的成员上
+    /// </summary>
+    internal sealed record VersionIndex([property: JsonPropertyName("versions")] IReadOnlyList<string> Versions);
+
+    /// <summary>
+    /// AOT 发布所需的 System.Text.Json 序列化元数据（source generator 生成）。
+    /// </summary>
+    [JsonSerializable(typeof(VersionIndex))]
+    [JsonSourceGenerationOptions(PropertyNameCaseInsensitive = true)]
+    internal sealed partial class VersionIndexJsonContext : JsonSerializerContext
+    {
     }
 }
