@@ -2,7 +2,9 @@
 
 一个基于 [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) 的 NuGet 包查询服务器，使用 .NET 10 与官方 [ModelContextProtocol](https://www.nuget.org/packages/ModelContextProtocol) SDK 实现。
 
-服务器通过标准输入输出（stdio）与 MCP 客户端通信，向 LLM（如 Claude、Cursor 等）提供三类工具：**在线查询 nuget.org** 上的包版本、**查询需要认证的私有 NuGet 仓库**（如阿里云云效制品仓库）中的包版本，以及**扫描本地扁平化包目录**中的 `.nupkg` 文件。适用于需要让 AI 助手确认 NuGet 包是否存在、最新稳定版本号是多少、某版本是否已发布到本地或私有仓库等场景。
+服务器既是 **ASP.NET Core WebAPI** 应用，也通过标准输入输出（stdio）与 MCP 客户端通信，向 LLM（如 Claude、Cursor 等）提供三类工具：**在线查询 nuget.org** 上的包版本、**查询需要认证的私有 NuGet 仓库**（如阿里云云效制品仓库）中的包版本，以及**扫描本地扁平化包目录**中的 `.nupkg` 文件。适用于需要让 AI 助手确认 NuGet 包是否存在、最新稳定版本号是多少、某版本是否已发布到本地或私有仓库等场景。
+
+同时暴露**等价的 REST 接口**（`/api/*`，包装与 MCP 工具相同的服务），并内置 **Scalar**（.NET 10 最新的 OpenAPI/Swagger UI，地址 `/scalar/v1`），可在浏览器中直接调试查询接口。
 
 ## ✨ 功能特性
 
@@ -24,6 +26,36 @@
 | `list_private_sources` | 私有 | 列出所有已配置的私有 NuGet 仓库名称（如阿里云云效制品仓库） |
 | `get_private_latest_package_version` | 私有 | 获取指定私有仓库中包的最新稳定版本号（若尚无稳定版，则提示最新预发布版本） |
 | `list_private_package_versions` | 私有 | 列出指定私有仓库中包的最新 N 个版本（含预发布，默认 10 个，最多 50 个），按最新优先 |
+
+## 🌐 WebAPI 与 REST 接口（Scalar 调试）
+
+项目已从纯控制台改造为 **ASP.NET Core WebAPI**：MCP stdio 服务器保持原样运行，同时宿主进程额外提供一组与 MCP 工具**共享同一服务**的 REST 接口，并通过内置的 **Scalar**（.NET 10 最新的 OpenAPI/Swagger UI）在浏览器中直接调试。
+
+### 启动
+
+```bash
+dotnet run
+```
+
+开发环境下默认地址（见 `Properties/launchSettings.json`）：
+
+- Scalar UI（Swagger）：`http://localhost:60826/scalar/v1`（HTTPS 为 `https://localhost:60825`）
+- OpenAPI 文档：`http://localhost:60826/openapi/v1.json`
+
+> 说明：进程同时承担 MCP stdio（JSON-RPC 走 stdout）与 Kestrel HTTP。在普通终端里运行即可两者并存；当 MCP 客户端作为子进程拉起时，stdin/stdout 由客户端接管，HTTP 端口仍然可用。
+
+### 可用 REST 接口
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/health` | 健康检查 |
+| GET | `/api/nuget/latest?packageId=` | 查询 nuget.org 最新稳定版本 |
+| GET | `/api/nuget/versions?packageId=&count=` | 列出 nuget.org 版本（最新优先） |
+| GET | `/api/nuget/local?search=` | 列出本地包目录（可按 ID 过滤） |
+| GET | `/api/nuget/private/sources` | 列出私有源名称 |
+| GET | `/api/nuget/private/versions?sourceName=&packageId=` | 列出私有源中包版本 |
+
+所有接口均可在 Scalar 页面里点击测试；返回 JSON 为 camelCase 命名。
 
 ## 📋 环境要求
 
@@ -178,9 +210,14 @@ dotnet publish -c Release -r win-x64
 
 ```
 NuGetMcpServer/
-├── Program.cs                          # 入口：配置日志重定向到 stderr、注册服务
+├── Program.cs                          # 入口：WebApplication 宿主、OpenAPI/Scalar、REST 端点
 ├── appsettings.json                    # 配置：NuGet:LocalPackagesPath + NuGet:PrivateSources
-├── NuGetMcpServer.csproj               # 项目文件（.NET 10 + ModelContextProtocol 2.2.0）
+├── NuGetMcpServer.csproj               # 项目文件（.NET 10 Web SDK + ModelContextProtocol 2.2.0）
+├── Properties/launchSettings.json      # 开发环境端口（https:60825 / http:60826）
+├── Api/
+│   ├── NuGetApiEndpoints.cs            # REST 端点：/api/*，包装与 MCP 工具相同的服务
+│   ├── Dtos.cs                         # REST 响应 DTO（record 类型）
+│   └── AppJsonSerializerContext.cs     # AOT 安全 JSON 序列化上下文（source generator）
 ├── Settings/
 │   └── LocalSettingOptions.cs          # 配置模型：本地包目录 + 私有源列表（含校验）
 ├── Services/
@@ -196,10 +233,11 @@ NuGetMcpServer/
 
 ## 🧱 技术栈
 
-- **.NET 10**（`net10.0`）
+- **.NET 10**（`net10.0`，`Microsoft.NET.Sdk.Web`）
 - [ModelContextProtocol](https://www.nuget.org/packages/ModelContextProtocol) 2.2.0（官方 C# MCP SDK）
 - [NuGet.Versioning](https://www.nuget.org/packages/NuGet.Versioning) 7.9.0（语义版本解析与排序）
-- [Microsoft.Extensions.Hosting](https://www.nuget.org/packages/Microsoft.Extensions.Hosting)（宿主与依赖注入）
+- [Microsoft.AspNetCore.OpenApi](https://www.nuget.org/packages/Microsoft.AspNetCore.OpenApi) 10.0.11（OpenAPI 3.1 文档生成，兼容 Native AOT）
+- [Scalar.AspNetCore](https://www.nuget.org/packages/Scalar.AspNetCore) 2.17.2（.NET 10 最新的 OpenAPI/Swagger UI）
 
 ## 📄 License
 
