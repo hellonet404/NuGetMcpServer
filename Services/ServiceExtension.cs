@@ -23,12 +23,15 @@ namespace NuGetMcpServer.Services
             services
                 .AddOptions<LocalSettingOptions>()
                 .Bind(nugetSection)
-                .Validate(LocalSettingOptions.Validate, "LocalPackagesPath is required")
+                .Validate(LocalSettingOptions.Validate, "NuGet 配置节无效：LocalPackagesPath 必填，且每个私有源需完整配置 Name/ServiceIndexUrl/Username/Password")
                 .ValidateOnStart();
 
 
             // 本地 NuGet 包目录扫描服务，路径从 appsettings.json 的 NuGet:LocalPackagesPath 读取
             services.AddSingleton<LocalNuGetPackageService>();
+
+            // 私有 NuGet 仓库（Basic Auth）查询客户端，配置来自 NuGet:PrivateSources
+            services.AddSingleton<PrivateNuGetCatalogClient>();
 
             services
                 .AddMcpServer()
@@ -36,6 +39,7 @@ namespace NuGetMcpServer.Services
                 //.WithToolsFromAssembly(); //会扫描当前程序集中的 [McpServerToolType] 类
                 .WithTools<NuGetTools>()
                 .WithTools<LocalNuGetTools>()
+                .WithTools<PrivateNuGetTools>()
                 .WithTools<HttpTools>();
 
             return services;

@@ -2,11 +2,12 @@
 
 一个基于 [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) 的 NuGet 包查询服务器，使用 .NET 10 与官方 [ModelContextProtocol](https://www.nuget.org/packages/ModelContextProtocol) SDK 实现。
 
-服务器通过标准输入输出（stdio）与 MCP 客户端通信，向 LLM（如 Claude、Cursor 等）提供两类工具：**在线查询 nuget.org** 上的包版本，以及**扫描本地扁平化包目录**中的 `.nupkg` 文件。适用于需要让 AI 助手确认 NuGet 包是否存在、最新稳定版本号是多少、某版本是否已发布到本地等场景。
+服务器通过标准输入输出（stdio）与 MCP 客户端通信，向 LLM（如 Claude、Cursor 等）提供三类工具：**在线查询 nuget.org** 上的包版本、**查询需要认证的私有 NuGet 仓库**（如阿里云云效制品仓库）中的包版本，以及**扫描本地扁平化包目录**中的 `.nupkg` 文件。适用于需要让 AI 助手确认 NuGet 包是否存在、最新稳定版本号是多少、某版本是否已发布到本地或私有仓库等场景。
 
 ## ✨ 功能特性
 
 - 🌐 **在线版本查询**：直连 NuGet 官方 API（`https://api.nuget.org/v3-flatcontainer`），获取包的最新稳定版本与完整版本列表。
+- 🔐 **私有仓库查询**：支持带用户名/密码认证的私有 NuGet v3 仓库（如阿里云云效制品仓库），自动解析 service index 并查询包版本，支持配置多个私有源。
 - 📦 **本地包扫描**：扫描本地目录中的 `{包ID}.{版本}.nupkg` 文件，支持按包 ID 过滤（不区分大小写、子串匹配）。
 - 📊 **版本智能排序**：所有版本均按 `NuGet.Versioning` 的语义版本规则从新到旧排序，预发布版本与稳定版本区分处理。
 - ⚙️ **零 API Key**：使用公开的 NuGet v3 API，无需注册或付费。
@@ -20,6 +21,9 @@
 | `list_package_versions` | 在线 | 列出包的最新 N 个版本（含预发布，默认 10 个，最多 50 个），按最新优先 |
 | `list_local_packages` | 本地 | 列出本地目录中的所有包及其版本，可按包 ID 子串过滤 |
 | `get_local_package_versions` | 本地 | 列出指定包在本地目录中的所有版本，用于确认某版本是否已下载到本地 |
+| `list_private_sources` | 私有 | 列出所有已配置的私有 NuGet 仓库名称（如阿里云云效制品仓库） |
+| `get_private_latest_package_version` | 私有 | 获取指定私有仓库中包的最新稳定版本号（若尚无稳定版，则提示最新预发布版本） |
+| `list_private_package_versions` | 私有 | 列出指定私有仓库中包的最新 N 个版本（含预发布，默认 10 个，最多 50 个），按最新优先 |
 
 ## 📋 环境要求
 
@@ -33,7 +37,15 @@
 ```json
 {
   "NuGet": {
-    "LocalPackagesPath": "D:\\Code\\NugetPackages"
+    "LocalPackagesPath": "D:\\Code\\NugetPackages",
+    "PrivateSources": [
+      {
+        "Name": "aliyun-oucp",
+        "ServiceIndexUrl": "https://packages.aliyun.com/66c40265f168c2ed4c91bd48/nuget/repo-oucp/index.json",
+        "Username": "你的阿里云仓库用户名",
+        "Password": "你的阿里云仓库密码"
+      }
+    ]
   }
 }
 ```
@@ -41,6 +53,23 @@
 | 配置项 | 说明 |
 | --- | --- |
 | `NuGet:LocalPackagesPath` | 本地扁平化 NuGet 包目录路径，目录中直接存放 `{包ID}.{版本}.nupkg` 文件（必填，缺失时服务器启动会报错） |
+| `NuGet:PrivateSources` | 私有 NuGet v3 仓库数组（可选）。每个仓库含 `Name`（唯一名称，工具用 `sourceName` 参数选择）、`ServiceIndexUrl`（v3 service index 地址，即仓库指南中给出的 `index.json` 完整 URL）、`Username` / `Password`（Basic Auth 凭证） |
+
+> **私有仓库工作原理**：服务器先带 Basic Auth 请求 `ServiceIndexUrl`（service index），解析出 `PackageBaseAddress/3.0.0`（flat container）资源地址，再带认证请求 `{flatContainer}/{包ID}/index.json` 获取版本列表。认证方式与 `dotnet nuget add source -u 用户名 -p 密码` 一致。
+
+### 私有仓库凭证的配置与覆盖
+
+- **直接配置**：把 `Username` / `Password` 写入 `appsettings.json`（最简单，但凭证明文落盘）。
+- **环境变量覆盖**：凭据可通过环境变量覆盖，避免明文落盘。ASP.NET Core 配置系统按层级用双下划线 `__` 分隔键名，例如：
+
+  ```powershell
+  # 覆盖第 1 个私有源（下标从 0 开始）的密码
+  $env:NuGet__PrivateSources__0__Password = "你的真实密码"
+  ```
+
+- **`${VAR}` 引用**：配置值也支持 `${环境变量名}` 语法，把真实凭据放到环境变量、配置里只写占位引用，例如 `"Password": "${ALIYUN_NUGET_PASSWORD}"`。
+
+> **认证头与重定向**：`HttpClient` 默认在跨主机重定向时丢弃 `Authorization` 头（安全默认，防止凭据泄露给第三方主机），同主机重定向则保留。阿里云仓库走标准 v3 流程通常无碍；若配置正确却全部返回 401，请检查仓库是否把请求重定向到了其他主机。
 
 ## 🚀 本地运行与测试
 
@@ -93,7 +122,7 @@ MCP 采用 **JSON-RPC over stdio** 的通信方式：服务器通过标准输入
 
 - `<PublishAot>true</PublishAot>`：启用 AOT 发布。
 - `<DebugType>none</DebugType>` 与 `<DebugSymbols>false</DebugSymbols>`：发布时不生成 .pdb 调试符号，减小分发体积。
-- JSON 序列化使用 `JsonSerializerContext` source generator（见 `Services/NuGetCatalogClient.cs` 中的 `VersionIndexJsonContext`），避免反射式 System.Text.Json 在 AOT 下抛出 `NotSupportedException`。
+- JSON 序列化使用 `JsonSerializerContext` source generator（`Services/NuGetCatalogClient.cs` 中的 `VersionIndexJsonContext` 与 `Services/PrivateNuGetCatalogClient.cs` 中的 `PrivateServiceIndexJsonContext`），避免反射式 System.Text.Json 在 AOT 下抛出 `NotSupportedException`。
 
 ### 发布命令
 
@@ -126,6 +155,7 @@ dotnet publish -c Release -r win-x64
 - **发布报 MSB4216（任务宿主创建失败）**：这是 .NET SDK 10.0.302 在 Windows 上的已知问题，仅影响 Windows 且与代码无关。可升级 SDK 至 10.0.100+ 或降级至 9.0.306 解决（参见 [dotnet/msbuild#12751](https://github.com/dotnet/msbuild/issues/12751)）。
 - **AOT 下 JSON 序列化异常**：本项目已通过 `JsonSerializerContext` 预生成序列化代码，不会出现反射式序列化导致的 `NotSupportedException`。若后续新增需要 JSON 序列化的类型，请记得在 `VersionIndexJsonContext` 中通过 `[JsonSerializable]` 注册。
 - **发布后修改配置**：AOT 发布产物仍读取同目录下的 `appsettings.json`，请将配置文件一并复制到部署目录。
+- **私有仓库查询返回 401**：优先检查 `NuGet:PrivateSources` 中该源的 `Username` / `Password` 是否正确、是否被环境变量覆盖为错误值；再确认仓库 URL 是否发生了跨主机重定向（见上方「认证头与重定向」说明）。
 
 ## 🔌 与 MCP 客户端集成
 
@@ -149,16 +179,18 @@ dotnet publish -c Release -r win-x64
 ```
 NuGetMcpServer/
 ├── Program.cs                          # 入口：配置日志重定向到 stderr、注册服务
-├── appsettings.json                    # 配置：NuGet:LocalPackagesPath
+├── appsettings.json                    # 配置：NuGet:LocalPackagesPath + NuGet:PrivateSources
 ├── NuGetMcpServer.csproj               # 项目文件（.NET 10 + ModelContextProtocol 2.2.0）
 ├── Settings/
-│   └── LocalSettingOptions.cs          # 本地包目录配置项及校验
+│   └── LocalSettingOptions.cs          # 配置模型：本地包目录 + 私有源列表（含校验）
 ├── Services/
 │   ├── ServiceExtension.cs             # DI 注册：HttpClient、配置绑定、MCP 服务器
 │   ├── NuGetCatalogClient.cs           # 在线查询 nuget.org v3-flatcontainer 目录 API
+│   ├── PrivateNuGetCatalogClient.cs    # 私有仓库（Basic Auth）查询：解析 service index + flat container
 │   └── LocalNuGetPackageService.cs     # 扫描本地 .nupkg 目录，解析 包ID.版本 文件名
 └── Tools/
     ├── NuGetTools.cs                   # 在线工具：get_latest_package_version / list_package_versions
+    ├── PrivateNuGetTools.cs            # 私有仓库工具：list_private_sources / get_private_latest_package_version / list_private_package_versions
     └── LocalNuGetTools.cs              # 本地工具：list_local_packages / get_local_package_versions
 ```
 
