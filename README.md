@@ -1,4 +1,4 @@
-# NuGetMcpServer
+﻿# NuGetMcpServer
 
 一个基于 [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) 的 NuGet 包查询服务器，使用 .NET 10 与官方 [ModelContextProtocol](https://www.nuget.org/packages/ModelContextProtocol) SDK 实现。
 
@@ -61,13 +61,18 @@ dotnet run
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download) 或更高版本
 - Node.js 22.19.0+（仅本地测试 / 客户端集成时需要，用于运行 MCP Inspector）
+- Docker Desktop（仅容器部署时需要，见 [Docker Desktop 部署](#-docker-desktop-部署)）
 
 ## ⚙️ 配置
 
-服务器配置读取 `appsettings.json` 中的 `NuGet` 配置节：
+服务器配置读取 `appsettings.json` 中的 `Mcp` 与 `NuGet` 两个配置节：
 
 ```json
 {
+  "Mcp": {
+    "Transport": "stdio",
+    "HttpPath": "/mcp"
+  },
   "NuGet": {
     "LocalPackagesPath": "D:\\Code\\NugetPackages",
     "PrivateSources": [
@@ -84,6 +89,8 @@ dotnet run
 
 | 配置项 | 说明 |
 | --- | --- |
+| `Mcp:Transport` | MCP 传输方式：`stdio`（默认，客户端以子进程拉起）或 `http`（Streamable HTTP，容器部署使用） |
+| `Mcp:HttpPath` | MCP HTTP 端点路径，仅在 `Transport` 为 `http` 时生效，默认 `/mcp` |
 | `NuGet:LocalPackagesPath` | 本地扁平化 NuGet 包目录路径，目录中直接存放 `{包ID}.{版本}.nupkg` 文件（必填，缺失时服务器启动会报错） |
 | `NuGet:PrivateSources` | 私有 NuGet v3 仓库数组（可选）。每个仓库含 `Name`（唯一名称，工具用 `sourceName` 参数选择）、`ServiceIndexUrl`（v3 service index 地址，即仓库指南中给出的 `index.json` 完整 URL）、`Username` / `Password`（Basic Auth 凭证） |
 
@@ -168,6 +175,8 @@ dotnet publish -c Release -r win-x64
 
 > 其他平台将 `win-x64` 替换为 `linux-x64`、`osx-arm64` 等即可，目标平台需与运行环境一致。
 
+> 容器内同样可以 AOT 发布，需改用 `sdk:10.0-aot` 镜像，仓库中的 `Dockerfile.aot` 为现成方案（默认不启用）。差异对比见 [DOCKER.md 第 11 节](DOCKER.md#11-可选native-aot-构建)。
+
 ### 在 MCP 客户端中使用发布后的 exe
 
 发布完成后，可直接以原生 exe 作为 MCP 服务器启动命令：
@@ -189,9 +198,35 @@ dotnet publish -c Release -r win-x64
 - **发布后修改配置**：AOT 发布产物仍读取同目录下的 `appsettings.json`，请将配置文件一并复制到部署目录。
 - **私有仓库查询返回 401**：优先检查 `NuGet:PrivateSources` 中该源的 `Username` / `Password` 是否正确、是否被环境变量覆盖为错误值；再确认仓库 URL 是否发生了跨主机重定向（见上方「认证头与重定向」说明）。
 
+## 🐳 Docker Desktop 部署
+
+除本地 stdio 方式外，本项目可打包为容器常驻运行，此时 MCP 改用 **Streamable HTTP** 传输，客户端通过 URL 连接而不再拉起子进程。
+
+```bash
+docker compose up -d
+```
+
+启动后的地址（容器内监听 18081，宿主机映射 18080，仅绑定 `127.0.0.1`）：
+
+| 用途 | 地址 |
+| --- | --- |
+| MCP 服务端点 | `http://localhost:18080/mcp` |
+| 健康检查 | `http://localhost:18080/api/health` |
+| REST 接口 | `http://localhost:18080/api/nuget/...` |
+
+需要查询私有仓库时，复制 `.env.example` 为 `.env` 填写凭证后叠加启动：
+
+```bash
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.private.yml up -d
+```
+
+> 完整流程与每个配置项的逐项说明见 **[DOCKER.md](DOCKER.md)**，包含构建参数、目录挂载、健康检查、运维命令与常见问题。
+
 ## 🔌 与 MCP 客户端集成
 
-本服务器采用 stdio 传输，启动命令为 `dotnet run`（可在 `NuGetMcpServer.csproj` 所在目录执行）。在任意支持 MCP 的客户端中，添加一个 `command` 类型的 MCP 服务器即可，例如：
+本服务器支持两种传输方式，由配置项 `Mcp:Transport` 决定：stdio（默认，本地开发）与 HTTP（容器部署）。
+
+**stdio 方式**：启动命令为 `dotnet run`（可在 `NuGetMcpServer.csproj` 所在目录执行）。在任意支持 MCP 的客户端中，添加一个 `command` 类型的 MCP 服务器即可，例如：
 
 ```json
 {
@@ -206,14 +241,32 @@ dotnet publish -c Release -r win-x64
 
 > 客户端配置中的路径请替换为实际的项目绝对路径。部分客户端（如 Cursor）会从 MCP 配置目录读取类似格式的 JSON 文件。
 
+**HTTP 方式**（容器部署后）：直接填写服务地址，无需本机安装 .NET。
+
+```json
+{
+  "mcpServers": {
+    "nuget": {
+      "url": "http://localhost:18080/mcp"
+    }
+  }
+}
+```
+
 ## 📁 项目结构
 
 ```
 NuGetMcpServer/
-├── Program.cs                          # 入口：WebApplication 宿主、OpenAPI/Scalar、REST 端点
-├── appsettings.json                    # 配置：NuGet:LocalPackagesPath + NuGet:PrivateSources
+├── Program.cs                          # 入口：WebApplication 宿主、MCP HTTP 端点、OpenAPI/Scalar、REST 端点
+├── appsettings.json                    # 本机配置：Mcp:Transport + NuGet:LocalPackagesPath + NuGet:PrivateSources
 ├── NuGetMcpServer.csproj               # 项目文件（.NET 10 Web SDK + ModelContextProtocol 2.2.0）
 ├── Properties/launchSettings.json      # 开发环境端口（https:60825 / http:60826）
+├── DOCKER.md                           # Docker Desktop 部署手册（配置项逐项说明）
+├── Dockerfile                          # 多阶段构建：SDK 编译 + ASP.NET 运行时，非 root 运行
+├── docker-compose.yml                  # 容器编排：端口 18080→18081、包目录挂载、健康检查
+├── docker-compose.private.yml          # 可选叠加：注入私有源认证凭证
+├── appsettings.Docker.json             # 镜像内配置基线（HTTP 传输，不含任何凭据）
+├── .env.example                        # 环境变量模板，复制为 .env 后填写真实值
 ├── Api/
 │   ├── NuGetApiEndpoints.cs            # REST 端点：/api/*，包装与 MCP 工具相同的服务
 │   ├── Dtos.cs                         # REST 响应 DTO（record 类型）

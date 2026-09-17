@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using ModelContextProtocol.AspNetCore;
 using NuGetMcpServer.Api;
 using NuGetMcpServer.Services;
 using Scalar.AspNetCore;
@@ -27,6 +28,12 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 });
 
 var app = builder.Build();
+
+if (string.Equals(app.Configuration["Mcp:Transport"], "http", StringComparison.OrdinalIgnoreCase))
+{
+    var mcpPath = app.Configuration["Mcp:HttpPath"];
+    app.MapMcp(string.IsNullOrWhiteSpace(mcpPath) ? "/mcp" : mcpPath);
+}
 
 // OpenAPI / Scalar（最新 swagger UI）
 if (app.Environment.IsDevelopment())

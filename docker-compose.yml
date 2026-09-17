@@ -1,0 +1,27 @@
+services:
+  nuget-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: nuget-mcp-server:local
+    container_name: nuget-mcp-server
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:18080:18081"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: "http://+:18081"
+      Mcp__Transport: http
+      Mcp__HttpPath: /mcp
+      NuGet__LocalPackagesPath: /packages
+    volumes:
+      - type: bind
+        source: "${NUGET_PACKAGES_PATH:-D:/Code/NugetPackages}"
+        target: /packages
+        read_only: true
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://localhost:18081/api/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3

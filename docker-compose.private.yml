@@ -1,0 +1,7 @@
+services:
+  nuget-mcp:
+    environment:
+      NuGet__PrivateSources__0__Name: "${PRIVATE_NUGET_SOURCE_NAME:?PRIVATE_NUGET_SOURCE_NAME is required}"
+      NuGet__PrivateSources__0__ServiceIndexUrl: "${PRIVATE_NUGET_SERVICE_INDEX_URL:?PRIVATE_NUGET_SERVICE_INDEX_URL is required}"
+      NuGet__PrivateSources__0__Username: "${PRIVATE_NUGET_USERNAME:?PRIVATE_NUGET_USERNAME is required}"
+      NuGet__PrivateSources__0__Password: "${PRIVATE_NUGET_PASSWORD:?PRIVATE_NUGET_PASSWORD is required}"

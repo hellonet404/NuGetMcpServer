@@ -1,5 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using ModelContextProtocol.AspNetCore;
+using ModelContextProtocol.Server;
 using NuGetMcpServer.Settings;
 using NuGetMcpServer.Tools;
 
@@ -33,9 +35,20 @@ namespace NuGetMcpServer.Services
             // 私有 NuGet 仓库（Basic Auth）查询客户端，配置来自 NuGet:PrivateSources
             services.AddSingleton<PrivateNuGetCatalogClient>();
 
-            services
-                .AddMcpServer()
-                .WithStdioServerTransport()
+            var mcpServer = services.AddMcpServer();
+            if (string.Equals(configuration["Mcp:Transport"], "http", StringComparison.OrdinalIgnoreCase))
+            {
+                mcpServer.WithHttpTransport(options =>
+                {
+                    options.SessionMode = HttpServerSessionMode.Stateless;
+                });
+            }
+            else
+            {
+                mcpServer.WithStdioServerTransport();
+            }
+
+            mcpServer
                 //.WithToolsFromAssembly(); //会扫描当前程序集中的 [McpServerToolType] 类
                 .WithTools<NuGetTools>()
                 .WithTools<LocalNuGetTools>()

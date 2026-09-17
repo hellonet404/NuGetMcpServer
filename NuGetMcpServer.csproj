@@ -12,6 +12,7 @@
 	<ItemGroup>
 		<PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.11" />
 		<PackageReference Include="ModelContextProtocol" Version="2.2.0" />
+		<PackageReference Include="ModelContextProtocol.AspNetCore" Version="2.2.0" />
 		<PackageReference Include="NuGet.Versioning" Version="7.9.0" />
 		<PackageReference Include="Scalar.AspNetCore" Version="2.17.2" />
 	</ItemGroup>

@@ -1,0 +1,32 @@
+# Optional Native AOT variant. Not referenced by docker-compose.yml.
+# Build: docker build -f Dockerfile.aot -t nuget-mcp-server:aot .
+# See DOCKER.md section 11 for trade-offs.
+
+FROM mcr.microsoft.com/dotnet/sdk:10.0-aot AS build
+WORKDIR /src
+
+COPY ["NuGetMcpServer.csproj", "./"]
+RUN dotnet restore "NuGetMcpServer.csproj" --runtime linux-x64
+
+COPY . .
+RUN dotnet publish "NuGetMcpServer.csproj" \
+    --configuration Release \
+    --runtime linux-x64 \
+    --output /app/publish \
+    --no-restore \
+    -p:PublishAot=true
+
+FROM mcr.microsoft.com/dotnet/runtime-deps:10.0 AS final
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install --no-install-recommends --yes curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=build /app/publish/NuGetMcpServer ./NuGetMcpServer
+COPY appsettings.Docker.json ./appsettings.json
+
+ENV ASPNETCORE_URLS=http://+:18081
+EXPOSE 18081
+
+ENTRYPOINT ["./NuGetMcpServer"]
